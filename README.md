@@ -2,7 +2,7 @@
 
 **Multi-agentic Text-to-SQL with Guided Error Correction**
 
-Based on the research paper [arXiv:2509.00581](https://arxiv.org/abs/2509.00581) by Chaturvedi, Chadha, and Bindschaedler.
+Based on the research paper [arXiv:2509.00581](https://arxiv.org/abs/2509.00581) App by Harsha Rao
 
 ## Overview
 
