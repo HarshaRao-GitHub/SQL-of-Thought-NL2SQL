@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SQL-of-Thought - Multi-agentic Text-to-SQL</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app">
+        <header>
+            <h1>SQL-of-Thought</h1>
+            <p class="subtitle">Multi-agentic Text-to-SQL with Guided Error Correction</p>
+            <p class="paper-ref">Based on <a href="https://arxiv.org/abs/2509.00581" target="_blank">arXiv:2509.00581</a></p>
+        </header>
+
+        <main>
+            <section class="input-section">
+                <div class="card">
+                    <h2>Database Schema</h2>
+                    <textarea id="schema" placeholder="Paste your CREATE TABLE statements here..."></textarea>
+                    <div class="examples">
+                        <span>Examples:</span>
+                        <button onclick="loadExample('ecommerce')">E-commerce</button>
+                        <button onclick="loadExample('blog')">Blog</button>
+                        <button onclick="loadExample('hr')">HR System</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>Ask a Question</h2>
+                    <input type="text" id="question" placeholder="What would you like to know from your database?">
+                    <div class="examples">
+                        <span>Try:</span>
+                        <button onclick="setQuestion('Find all customers who spent more than $500')">Top Customers</button>
+                        <button onclick="setQuestion('What are the most popular products?')">Popular Products</button>
+                        <button onclick="setQuestion('Show monthly sales trends')">Sales Trends</button>
+                    </div>
+                </div>
+
+                <div class="card options-card">
+                    <div class="options-row">
+                        <div class="option">
+                            <label for="provider">LLM Provider</label>
+                            <select id="provider">
+                                <option value="openai">OpenAI</option>
+                                <option value="anthropic">Anthropic</option>
+                            </select>
+                        </div>
+                        <div class="option">
+                            <label for="model">Model</label>
+                            <input type="text" id="model" placeholder="Default model">
+                        </div>
+                        <div class="option">
+                            <label for="iterations">Max Iterations</label>
+                            <input type="number" id="iterations" value="3" min="1" max="10">
+                        </div>
+                    </div>
+                </div>
+
+                <button class="primary-btn" id="generate-btn" onclick="generateSQL()">
+                    <span class="btn-text">Generate SQL</span>
+                    <span class="btn-loading">
+                        <svg class="spinner" viewBox="0 0 24 24">
+                            <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="3" stroke-dasharray="30 70"/>
+                        </svg>
+                        Generating...
+                    </span>
+                </button>
+            </section>
+
+            <section class="output-section" id="output-section" style="display: none;">
+                <div class="card result-card" id="result-card">
+                    <div class="result-header">
+                        <h2>Generated SQL</h2>
+                        <div class="result-meta">
+                            <span id="iterations-badge" class="badge">0 iterations</span>
+                            <button class="copy-btn" onclick="copySQL()">Copy</button>
+                        </div>
+                    </div>
+                    <pre class="sql-output"><code id="sql-output"></code></pre>
+                </div>
+
+                <div class="card" id="reasoning-card" style="display: none;">
+                    <h2>Reasoning</h2>
+                    <div id="reasoning-output" class="reasoning-output"></div>
+                </div>
+
+                <div class="card" id="execution-card" style="display: none;">
+                    <h2>Execution Results</h2>
+                    <div id="execution-output"></div>
+                </div>
+
+                <div class="card error-card" id="error-card" style="display: none;">
+                    <h2>Error</h2>
+                    <div id="error-output"></div>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>SQL-of-Thought v1.0.0 | Multi-agent Text-to-SQL Framework</p>
+            <p><a href="/api/docs">API Documentation</a></p>
+        </footer>
+    </div>
+
+    <script>
+        const examples = {
+            ecommerce: `CREATE TABLE customers (
+    customer_id INTEGER PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    email VARCHAR(100) UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE products (
+    product_id INTEGER PRIMARY KEY,
+    name VARCHAR(200) NOT NULL,
+    category VARCHAR(50),
+    price DECIMAL(10, 2) NOT NULL,
+    stock_quantity INTEGER DEFAULT 0
+);
+
+CREATE TABLE orders (
+    order_id INTEGER PRIMARY KEY,
+    customer_id INTEGER REFERENCES customers(customer_id),
+    order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    total_amount DECIMAL(10, 2),
+    status VARCHAR(20) DEFAULT 'pending'
+);
+
+CREATE TABLE order_items (
+    item_id INTEGER PRIMARY KEY,
+    order_id INTEGER REFERENCES orders(order_id),
+    product_id INTEGER REFERENCES products(product_id),
+    quantity INTEGER NOT NULL,
+    unit_price DECIMAL(10, 2) NOT NULL
+);`,
+            blog: `CREATE TABLE users (
+    user_id INTEGER PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    role VARCHAR(20) DEFAULT 'reader',
+    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE posts (
+    post_id INTEGER PRIMARY KEY,
+    author_id INTEGER REFERENCES users(user_id),
+    title VARCHAR(200) NOT NULL,
+    content TEXT,
+    published_at TIMESTAMP,
+    views INTEGER DEFAULT 0,
+    status VARCHAR(20) DEFAULT 'draft'
+);
+
+CREATE TABLE comments (
+    comment_id INTEGER PRIMARY KEY,
+    post_id INTEGER REFERENCES posts(post_id),
+    user_id INTEGER REFERENCES users(user_id),
+    content TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE tags (
+    tag_id INTEGER PRIMARY KEY,
+    name VARCHAR(50) UNIQUE NOT NULL
+);
+
+CREATE TABLE post_tags (
+    post_id INTEGER REFERENCES posts(post_id),
+    tag_id INTEGER REFERENCES tags(tag_id),
+    PRIMARY KEY (post_id, tag_id)
+);`,
+            hr: `CREATE TABLE departments (
+    dept_id INTEGER PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    budget DECIMAL(15, 2)
+);
+
+CREATE TABLE employees (
+    emp_id INTEGER PRIMARY KEY,
+    first_name VARCHAR(50) NOT NULL,
+    last_name VARCHAR(50) NOT NULL,
+    email VARCHAR(100) UNIQUE,
+    hire_date DATE NOT NULL,
+    salary DECIMAL(10, 2),
+    dept_id INTEGER REFERENCES departments(dept_id),
+    manager_id INTEGER REFERENCES employees(emp_id)
+);
+
+CREATE TABLE projects (
+    project_id INTEGER PRIMARY KEY,
+    name VARCHAR(200) NOT NULL,
+    start_date DATE,
+    end_date DATE,
+    budget DECIMAL(15, 2),
+    status VARCHAR(20) DEFAULT 'planning'
+);
+
+CREATE TABLE employee_projects (
+    emp_id INTEGER REFERENCES employees(emp_id),
+    project_id INTEGER REFERENCES projects(project_id),
+    role VARCHAR(50),
+    hours_allocated INTEGER,
+    PRIMARY KEY (emp_id, project_id)
+);`
+        };
+
+        function loadExample(name) {
+            document.getElementById('schema').value = examples[name];
+        }
+
+        function setQuestion(q) {
+            document.getElementById('question').value = q;
+        }
+
+        async function generateSQL() {
+            const btn = document.getElementById('generate-btn');
+            const outputSection = document.getElementById('output-section');
+            const resultCard = document.getElementById('result-card');
+            const reasoningCard = document.getElementById('reasoning-card');
+            const executionCard = document.getElementById('execution-card');
+            const errorCard = document.getElementById('error-card');
+
+            const schema = document.getElementById('schema').value.trim();
+            const question = document.getElementById('question').value.trim();
+            const provider = document.getElementById('provider').value;
+            const model = document.getElementById('model').value.trim();
+            const maxIterations = parseInt(document.getElementById('iterations').value);
+
+            if (!schema || !question) {
+                alert('Please provide both a database schema and a question.');
+                return;
+            }
+
+            // Show loading state
+            btn.classList.add('loading');
+            btn.disabled = true;
+
+            // Hide previous results
+            outputSection.style.display = 'none';
+            errorCard.style.display = 'none';
+
+            try {
+                const response = await fetch('/api/query', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        question,
+                        schema,
+                        provider,
+                        model: model || null,
+                        max_iterations: maxIterations
+                    })
+                });
+
+                const data = await response.json();
+
+                outputSection.style.display = 'block';
+
+                if (data.success) {
+                    resultCard.classList.remove('error');
+                    resultCard.classList.add('success');
+                    document.getElementById('sql-output').textContent = data.sql;
+                    document.getElementById('iterations-badge').textContent = `${data.iterations} iteration${data.iterations !== 1 ? 's' : ''}`;
+
+                    if (data.reasoning) {
+                        reasoningCard.style.display = 'block';
+                        document.getElementById('reasoning-output').textContent = data.reasoning;
+                    } else {
+                        reasoningCard.style.display = 'none';
+                    }
+
+                    if (data.execution_result && data.execution_result.data) {
+                        executionCard.style.display = 'block';
+                        document.getElementById('execution-output').innerHTML = renderTable(data.execution_result);
+                    } else {
+                        executionCard.style.display = 'none';
+                    }
+
+                    errorCard.style.display = 'none';
+                } else {
+                    resultCard.classList.add('error');
+                    resultCard.classList.remove('success');
+
+                    if (data.sql) {
+                        document.getElementById('sql-output').textContent = data.sql;
+                    } else {
+                        document.getElementById('sql-output').textContent = '-- No SQL generated';
+                    }
+
+                    document.getElementById('iterations-badge').textContent = `${data.iterations} iteration${data.iterations !== 1 ? 's' : ''}`;
+
+                    errorCard.style.display = 'block';
+                    document.getElementById('error-output').textContent = data.error || 'Unknown error occurred';
+
+                    reasoningCard.style.display = 'none';
+                    executionCard.style.display = 'none';
+                }
+
+            } catch (err) {
+                outputSection.style.display = 'block';
+                errorCard.style.display = 'block';
+                document.getElementById('error-output').textContent = err.message;
+                resultCard.style.display = 'none';
+            }
+
+            btn.classList.remove('loading');
+            btn.disabled = false;
+        }
+
+        function renderTable(result) {
+            if (!result.data || result.data.length === 0) {
+                return '<p>No results</p>';
+            }
+
+            let html = '<table><thead><tr>';
+            for (const col of result.columns) {
+                html += `<th>${escapeHtml(col)}</th>`;
+            }
+            html += '</tr></thead><tbody>';
+
+            for (const row of result.data.slice(0, 20)) {
+                html += '<tr>';
+                for (const col of result.columns) {
+                    html += `<td>${escapeHtml(String(row[col] ?? ''))}</td>`;
+                }
+                html += '</tr>';
+            }
+            html += '</tbody></table>';
+
+            if (result.row_count > 20) {
+                html += `<p class="more-rows">...and ${result.row_count - 20} more rows</p>`;
+            }
+
+            return html;
+        }
+
+        function copySQL() {
+            const sql = document.getElementById('sql-output').textContent;
+            navigator.clipboard.writeText(sql).then(() => {
+                const btn = document.querySelector('.copy-btn');
+                btn.textContent = 'Copied!';
+                setTimeout(() => btn.textContent = 'Copy', 2000);
+            });
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>
