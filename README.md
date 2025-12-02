@@ -238,9 +238,9 @@ MIT License - see [LICENSE](LICENSE) for details.
 If you use this implementation in your research, please cite the original paper:
 
 ```bibtex
-@article{chaturvedi2024sqlofthought,
+@article{harsharaosqlofthought,
   title={SQL-of-Thought: Multi-agentic Text-to-SQL with Guided Error Correction},
-  author={Chaturvedi, Anubhav and Chadha, Arnav and Bindschaedler, Laurent},
+  author={Harsha Rao},
   journal={arXiv preprint arXiv:2509.00581},
   year={2024}
 }
